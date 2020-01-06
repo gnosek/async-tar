@@ -9,7 +9,6 @@ extern crate async_tar;
 use async_std::{
     io::{copy, stdin, stdout},
     path::Path,
-    prelude::*,
 };
 use std::env::args_os;
 
@@ -20,8 +19,7 @@ fn main() {
         let first_arg = args_os().nth(1).unwrap();
         let filename = Path::new(&first_arg);
         let mut ar = Archive::new(stdin());
-        let mut entries = ar.entries().unwrap();
-        while let Some(file) = entries.next().await {
+        while let Some(file) = ar.next_entry().await {
             let mut f = file.unwrap();
             if f.path().unwrap() == filename {
                 copy(&mut f, &mut stdout()).await.unwrap();

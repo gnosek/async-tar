@@ -4,7 +4,7 @@
 
 extern crate async_tar;
 
-use async_std::{io::stdin, prelude::*};
+use async_std::io::stdin;
 
 use async_tar::Archive;
 
@@ -12,8 +12,7 @@ fn main() {
     async_std::task::block_on(async {
         let mut ar = Archive::new(stdin());
         let mut i = 0;
-        let mut entries = ar.entries_raw().unwrap();
-        while let Some(file) = entries.next().await {
+        while let Some(file) = ar.next_raw_entry().await {
             println!("-------------------------- Entry {}", i);
             let mut f = file.unwrap();
             println!("path: {}", f.path().unwrap().display());

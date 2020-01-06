@@ -22,7 +22,7 @@
 use std::io::{Error, ErrorKind};
 
 pub use crate::{
-    archive::{Archive, ArchiveBuilder, Entries},
+    archive::{Archive, ArchiveBuilder},
     builder::Builder,
     entry::{Entry, Unpacked},
     entry_type::EntryType,

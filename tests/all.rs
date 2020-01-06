@@ -71,9 +71,7 @@ async fn simple_concat() {
         R: Read + Unpin + Sync + Send,
     {
         let mut names = Vec::new();
-        let mut entries = t!(ar.entries());
-
-        while let Some(entry) = entries.next().await {
+        while let Some(entry) = ar.next_entry().await {
             let e = t!(entry);
             names.push(t!(::std::str::from_utf8(&e.path_bytes())).to_string());
         }
@@ -87,8 +85,7 @@ async fn header_impls() {
     let mut ar = Archive::new(Cursor::new(tar!("simple.tar")));
     let hn = Header::new_old();
     let hnb = hn.as_bytes();
-    let mut entries = t!(ar.entries());
-    while let Some(file) = entries.next().await {
+    while let Some(file) = ar.next_entry().await {
         let file = t!(file);
         let h1 = file.header();
         let h1b = h1.as_bytes();
@@ -103,9 +100,8 @@ async fn header_impls_missing_last_header() {
     let mut ar = Archive::new(Cursor::new(tar!("simple_missing_last_header.tar")));
     let hn = Header::new_old();
     let hnb = hn.as_bytes();
-    let mut entries = t!(ar.entries());
 
-    while let Some(file) = entries.next().await {
+    while let Some(file) = ar.next_entry().await {
         let file = t!(file);
         let h1 = file.header();
         let h1b = h1.as_bytes();
@@ -119,21 +115,20 @@ async fn header_impls_missing_last_header() {
 async fn reading_files() {
     let rdr = Cursor::new(tar!("reading_files.tar"));
     let mut ar = Archive::new(rdr);
-    let mut entries = t!(ar.entries());
 
-    let mut a = t!(entries.next().await.unwrap());
+    let mut a = t!(ar.next_entry().await.unwrap());
     assert_eq!(&*a.header().path_bytes(), b"a");
     let mut s = String::new();
     t!(a.read_to_string(&mut s).await);
     assert_eq!(s, "a\na\na\na\na\na\na\na\na\na\na\n");
 
-    let mut b = t!(entries.next().await.unwrap());
+    let mut b = t!(ar.next_entry().await.unwrap());
     assert_eq!(&*b.header().path_bytes(), b"b");
     s.truncate(0);
     t!(b.read_to_string(&mut s).await);
     assert_eq!(s, "b\nb\nb\nb\nb\nb\nb\nb\nb\nb\nb\n");
 
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 #[async_std::test]
@@ -150,8 +145,7 @@ async fn writing_files() {
 
     let data = t!(ar.into_inner().await);
     let mut ar = Archive::new(Cursor::new(data));
-    let mut entries = t!(ar.entries());
-    let mut f = t!(entries.next().await.unwrap());
+    let mut f = t!(ar.next_entry().await.unwrap());
 
     assert_eq!(&*f.header().path_bytes(), b"test2");
     assert_eq!(f.header().size().unwrap(), 4);
@@ -159,7 +153,7 @@ async fn writing_files() {
     t!(f.read_to_string(&mut s).await);
     assert_eq!(s, "test");
 
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 #[async_std::test]
@@ -184,10 +178,9 @@ async fn large_filename() {
 
     let rd = Cursor::new(t!(ar.into_inner().await));
     let mut ar = Archive::new(rd);
-    let mut entries = t!(ar.entries());
 
     // The short entry added with `append`
-    let mut f = entries.next().await.unwrap().unwrap();
+    let mut f = ar.next_entry().await.unwrap().unwrap();
     assert_eq!(&*f.header().path_bytes(), filename.as_bytes());
     assert_eq!(f.header().size().unwrap(), 4);
     let mut s = String::new();
@@ -195,7 +188,7 @@ async fn large_filename() {
     assert_eq!(s, "test");
 
     // The long entry added with `append_file`
-    let mut f = entries.next().await.unwrap().unwrap();
+    let mut f = ar.next_entry().await.unwrap().unwrap();
     assert_eq!(&*f.path_bytes(), too_long.as_bytes());
     assert_eq!(f.header().size().unwrap(), 4);
     let mut s = String::new();
@@ -203,7 +196,7 @@ async fn large_filename() {
     assert_eq!(s, "test");
 
     // The long entry added with `append_data`
-    let mut f = entries.next().await.unwrap().unwrap();
+    let mut f = ar.next_entry().await.unwrap().unwrap();
     assert!(f.header().path_bytes().len() < too_long.len());
     assert_eq!(&*f.path_bytes(), too_long.as_bytes());
     assert_eq!(f.header().size().unwrap(), 4);
@@ -211,15 +204,14 @@ async fn large_filename() {
     t!(f.read_to_string(&mut s).await);
     assert_eq!(s, "test");
 
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 #[async_std::test]
 async fn reading_entries() {
     let rdr = Cursor::new(tar!("reading_files.tar"));
     let mut ar = Archive::new(rdr);
-    let mut entries = t!(ar.entries());
-    let mut a = t!(entries.next().await.unwrap());
+    let mut a = t!(ar.next_entry().await.unwrap());
     assert_eq!(&*a.header().path_bytes(), b"a");
     let mut s = String::new();
     t!(a.read_to_string(&mut s).await);
@@ -227,13 +219,13 @@ async fn reading_entries() {
     s.truncate(0);
     t!(a.read_to_string(&mut s).await);
     assert_eq!(s, "");
-    let mut b = t!(entries.next().await.unwrap());
+    let mut b = t!(ar.next_entry().await.unwrap());
 
     assert_eq!(&*b.header().path_bytes(), b"b");
     s.truncate(0);
     t!(b.read_to_string(&mut s).await);
     assert_eq!(s, "b\nb\nb\nb\nb\nb\nb\nb\nb\nb\nb\n");
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 async fn check_dirtree(td: &TempDir) {
@@ -449,9 +441,11 @@ async fn unpack_old_style_bsd_dir() {
     t!(ar.unpack(td.path()).await);
 
     // Iterating
-    let rdr = Cursor::new(ar.into_inner().map_err(|_| ()).unwrap().into_inner());
+    let rdr = Cursor::new(ar.into_inner().into_inner());
     let mut ar = Archive::new(rdr);
-    assert!(t!(ar.entries()).all(|fr| fr.is_ok()).await);
+    while let Some(entry) = ar.next_entry().await {
+        assert!(entry.is_ok());
+    }
 
     assert!(td.path().join("testdir").is_dir());
 }
@@ -478,9 +472,14 @@ async fn handling_incorrect_file_size() {
     assert!(ar.unpack(td.path()).await.is_err());
 
     // Iterating
-    let rdr = Cursor::new(ar.into_inner().map_err(|_| ()).unwrap().into_inner());
+    let rdr = Cursor::new(ar.into_inner().into_inner());
     let mut ar = Archive::new(rdr);
-    assert!(t!(ar.entries()).any(|fr| fr.is_err()).await);
+    while let Some(entry) = ar.next_entry().await {
+        if entry.is_err() {
+            return;
+        }
+    }
+    panic!("Did not find the expected error");
 }
 
 #[async_std::test]
@@ -588,7 +587,7 @@ async fn octal_spaces() {
     let rdr = Cursor::new(tar!("spaces.tar"));
     let mut ar = Archive::new(rdr);
 
-    let entry = ar.entries().unwrap().next().await.unwrap().unwrap();
+    let entry = ar.next_entry().await.unwrap().unwrap();
     assert_eq!(entry.header().mode().unwrap() & 0o777, 0o777);
     assert_eq!(entry.header().uid().unwrap(), 0);
     assert_eq!(entry.header().gid().unwrap(), 0);
@@ -655,7 +654,7 @@ async fn backslash_treated_well() {
     let mut ar = Builder::new(Vec::<u8>::new());
     t!(ar.append_dir("foo\\bar", td.path()).await);
     let mut ar = Archive::new(Cursor::new(t!(ar.into_inner().await)));
-    let f = t!(t!(ar.entries()).next().await.unwrap());
+    let f = t!(ar.next_entry().await.unwrap());
     if cfg!(unix) {
         assert_eq!(t!(f.header().path()).to_str(), Some("foo\\bar"));
     } else {
@@ -674,7 +673,7 @@ async fn backslash_treated_well() {
     t!(ar.append(&header, &mut io::empty()).await);
     let data = t!(ar.into_inner().await);
     let mut ar = Archive::new(&data[..]);
-    let f = t!(t!(ar.entries()).next().await.unwrap());
+    let f = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(f.header().path()).to_str(), Some("foo\\bar"));
 
     let mut ar = Archive::new(&data[..]);
@@ -697,13 +696,12 @@ async fn nul_bytes_in_path() {
 #[async_std::test]
 async fn links() {
     let mut ar = Archive::new(Cursor::new(tar!("link.tar")));
-    let mut entries = t!(ar.entries());
-    let link = t!(entries.next().await.unwrap());
+    let link = t!(ar.next_entry().await.unwrap());
     assert_eq!(
         t!(link.header().link_name()).as_ref().map(|p| &**p),
         Some(Path::new("file"))
     );
-    let other = t!(entries.next().await.unwrap());
+    let other = t!(ar.next_entry().await.unwrap());
     assert!(t!(other.header().link_name()).is_none());
 }
 
@@ -726,9 +724,8 @@ async fn unpack_links() {
 #[async_std::test]
 async fn pax_simple() {
     let mut ar = Archive::new(tar!("pax.tar"));
-    let mut entries = t!(ar.entries());
 
-    let mut first = t!(entries.next().await.unwrap());
+    let mut first = t!(ar.next_entry().await.unwrap());
     let mut attributes = t!(first.pax_extensions().await).unwrap();
     let first = t!(attributes.next().unwrap());
     let second = t!(attributes.next().unwrap());
@@ -746,9 +743,8 @@ async fn pax_simple() {
 #[async_std::test]
 async fn pax_path() {
     let mut ar = Archive::new(tar!("pax2.tar"));
-    let mut entries = t!(ar.entries());
 
-    let first = t!(entries.next().await.unwrap());
+    let first = t!(ar.next_entry().await.unwrap());
     assert!(first.path().unwrap().ends_with("aaaaaaaaaaaaaaa"));
 }
 
@@ -773,7 +769,7 @@ async fn long_name_trailing_nul() {
     let contents = t!(b.into_inner().await);
     let mut a = Archive::new(&contents[..]);
 
-    let e = t!(t!(a.entries()).next().await.unwrap());
+    let e = t!(a.next_entry().await.unwrap());
     assert_eq!(&*e.path_bytes(), b"foo");
 }
 
@@ -798,7 +794,7 @@ async fn long_linkname_trailing_nul() {
     let contents = t!(b.into_inner().await);
     let mut a = Archive::new(&contents[..]);
 
-    let e = t!(t!(a.entries()).next().await.unwrap());
+    let e = t!(a.next_entry().await.unwrap());
     assert_eq!(&*e.link_name_bytes().unwrap(), b"foo");
 }
 
@@ -816,7 +812,7 @@ async fn encoded_long_name_has_trailing_nul() {
     let contents = t!(b.into_inner().await);
     let mut a = Archive::new(&contents[..]);
 
-    let mut e = t!(t!(a.entries_raw()).next().await.unwrap());
+    let mut e = t!(a.next_raw_entry().await.unwrap());
     let mut name = Vec::new();
     t!(e.read_to_end(&mut name).await);
     assert_eq!(name[name.len() - 1], 0);
@@ -829,23 +825,22 @@ async fn encoded_long_name_has_trailing_nul() {
 async fn reading_sparse() {
     let rdr = Cursor::new(tar!("sparse.tar"));
     let mut ar = Archive::new(rdr);
-    let mut entries = t!(ar.entries());
 
-    let mut a = t!(entries.next().await.unwrap());
+    let mut a = t!(ar.next_entry().await.unwrap());
     let mut s = String::new();
     assert_eq!(&*a.header().path_bytes(), b"sparse_begin.txt");
     t!(a.read_to_string(&mut s).await);
     assert_eq!(&s[..5], "test\n");
     assert!(s[5..].chars().all(|x| x == '\u{0}'));
 
-    let mut a = t!(entries.next().await.unwrap());
+    let mut a = t!(ar.next_entry().await.unwrap());
     let mut s = String::new();
     assert_eq!(&*a.header().path_bytes(), b"sparse_end.txt");
     t!(a.read_to_string(&mut s).await);
     assert!(s[..s.len() - 9].chars().all(|x| x == '\u{0}'));
     assert_eq!(&s[s.len() - 9..], "test_end\n");
 
-    let mut a = t!(entries.next().await.unwrap());
+    let mut a = t!(ar.next_entry().await.unwrap());
     let mut s = String::new();
     assert_eq!(&*a.header().path_bytes(), b"sparse_ext.txt");
     t!(a.read_to_string(&mut s).await);
@@ -862,7 +857,7 @@ async fn reading_sparse() {
     assert!(s[0x9000 + 5..0xb000].chars().all(|x| x == '\u{0}'));
     assert_eq!(&s[0xb000..0xb000 + 5], "text\n");
 
-    let mut a = t!(entries.next().await.unwrap());
+    let mut a = t!(ar.next_entry().await.unwrap());
     let mut s = String::new();
     assert_eq!(&*a.header().path_bytes(), b"sparse.txt");
     t!(a.read_to_string(&mut s).await);
@@ -872,7 +867,7 @@ async fn reading_sparse() {
     assert_eq!(&s[0x2fa0..0x2fa0 + 6], "world\n");
     assert!(s[0x2fa0 + 6..0x4000].chars().all(|x| x == '\u{0}'));
 
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 #[async_std::test]
@@ -957,17 +952,16 @@ async fn path_separators() {
 
     let rd = Cursor::new(t!(ar.into_inner().await));
     let mut ar = Archive::new(rd);
-    let mut entries = t!(ar.entries());
 
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(entry.path()), short_path);
     assert!(!entry.path_bytes().contains(&b'\\'));
 
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(entry.path()), long_path);
     assert!(!entry.path_bytes().contains(&b'\\'));
 
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 #[async_std::test]
@@ -994,9 +988,8 @@ async fn append_path_symlink() {
 
     let rd = Cursor::new(t!(ar.into_inner().await));
     let mut ar = Archive::new(rd);
-    let mut entries = t!(ar.entries());
 
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(entry.path()), Path::new("test"));
     assert_eq!(
         t!(entry.link_name()),
@@ -1004,7 +997,7 @@ async fn append_path_symlink() {
     );
     assert_eq!(t!(entry.header().size()), 0);
 
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(entry.path()), Path::new("test2"));
     assert_eq!(
         t!(entry.link_name()),
@@ -1012,7 +1005,7 @@ async fn append_path_symlink() {
     );
     assert_eq!(t!(entry.header().size()), 0);
 
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(entry.path()), Path::new(&long_pathname));
     assert_eq!(
         t!(entry.link_name()),
@@ -1020,7 +1013,7 @@ async fn append_path_symlink() {
     );
     assert_eq!(t!(entry.header().size()), 0);
 
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 #[async_std::test]
@@ -1049,9 +1042,11 @@ async fn name_with_slash_doesnt_fool_long_link_and_bsd_compat() {
     t!(ar.unpack(td.path()).await);
 
     // Iterating
-    let rdr = Cursor::new(ar.into_inner().map_err(|_| ()).unwrap().into_inner());
+    let rdr = Cursor::new(ar.into_inner().into_inner());
     let mut ar = Archive::new(rdr);
-    assert!(t!(ar.entries()).all(|fr| fr.is_ok()).await);
+    while let Some(entry) = ar.next_entry().await {
+        t!(entry);
+    }
 
     assert!(td.path().join("foo").is_file());
 }
@@ -1073,12 +1068,11 @@ async fn insert_local_file_different_name() {
 
     let rd = Cursor::new(t!(ar.into_inner().await));
     let mut ar = Archive::new(rd);
-    let mut entries = t!(ar.entries());
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(entry.path()), Path::new("archive/dir"));
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(t!(entry.path()), Path::new("archive/dir/f"));
-    assert!(entries.next().await.is_none());
+    assert!(ar.next_entry().await.is_none());
 }
 
 #[async_std::test]

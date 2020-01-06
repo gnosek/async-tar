@@ -35,8 +35,7 @@ async fn absolute_symlink() {
     t!(td.path().join("foo").symlink_metadata());
 
     let mut ar = async_tar::Archive::new(&bytes[..]);
-    let mut entries = t!(ar.entries());
-    let entry = t!(entries.next().await.unwrap());
+    let entry = t!(ar.next_entry().await.unwrap());
     assert_eq!(&*entry.link_name_bytes().unwrap(), b"/bar");
 }
 
