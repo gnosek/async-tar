@@ -16,6 +16,7 @@ use std::fmt;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
+use std::ptr::NonNull;
 
 #[derive(Debug)]
 pub enum SparseEntry {
@@ -95,6 +96,28 @@ impl SparseEntry {
             }
             SparseEntry::None => panic!("Write of zero-sized SparseEntry requested"),
         }
+    }
+}
+
+/// Wrapper over std::ptr::NonNull<T> to hack around Entry lifetimes
+pub struct NonNullRead<R: Read + Unpin>(NonNull<R>);
+
+unsafe impl<R: Read + Unpin> Send for NonNullRead<R> {}
+
+impl<R: Read + Unpin> From<&mut R> for NonNullRead<R> {
+    fn from(reader: &mut R) -> Self {
+        Self(NonNull::from(reader))
+    }
+}
+
+impl<R: Read + Unpin> Read for NonNullRead<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        out_buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        let reader = unsafe { self.0.as_mut() };
+        Pin::new(reader).poll_read(cx, out_buf)
     }
 }
 
@@ -193,7 +216,22 @@ impl<R: Read + Unpin> SparseReader<R> {
         let mut v = Vec::with_capacity(cap as usize);
         self.read_to_end(&mut v).await.map(|_| v)
     }
+}
 
+impl<R: Read + Unpin> SparseReader<&mut Pin<Box<R>>> {
+    /// Convert the reader reference into a NonNull<R>
+    ///
+    /// # Safety
+    /// this is safe as long as you pin the original reader
+    /// that this entry references and don't hold on to multiple
+    /// `SparseReader`s at the same time
+    pub unsafe fn into_nonnull(self) -> SparseReader<NonNullRead<R>> {
+        SparseReader {
+            reader: NonNullRead::from(self.reader.as_mut().get_mut()),
+            pos: self.pos,
+            chunks: self.chunks,
+        }
+    }
 }
 
 /// When unpacking items the unpacked thing is returned to allow custom
@@ -906,6 +944,21 @@ impl<R: Read + Unpin> Entry<R> {
     /// Return the wrapped reader
     pub fn into_inner(self) -> R {
         self.data.into_inner()
+    }
+}
+
+impl<R: Read + Unpin> Entry<&mut Pin<Box<R>>> {
+    /// Convert the reader reference into a NonNull<R>
+    ///
+    /// # Safety
+    /// this is safe as long as you pin the original reader
+    /// that this entry references and don't hold on to multiple
+    /// `Entry`s at the same time
+    pub unsafe fn into_nonnull(self) -> Entry<NonNullRead<R>> {
+        Entry {
+            fields: self.fields,
+            data: self.data.into_nonnull(),
+        }
     }
 }
 
