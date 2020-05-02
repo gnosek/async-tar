@@ -139,6 +139,16 @@ impl<R: Read + Unpin> Archive<R> {
         }
     }
 
+    /// Create a new archive iterator from a reader
+    pub fn new_with_pos(reader: R, pos: u64) -> Self {
+        Self {
+            reader,
+            options: ArchiveOptions::default(),
+            pos: Arc::new(AtomicU64::new(pos)),
+            next: pos,
+        }
+    }
+
     async fn next_raw_entry_impl(
         &mut self,
     ) -> Option<io::Result<(EntryFields, SparseReader<&mut R>)>> {
