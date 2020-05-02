@@ -460,4 +460,9 @@ impl<R: Read + Unpin> Archive<R> {
     pub fn into_inner(self) -> R {
         self.reader
     }
+
+    /// Borrow the underlying reader
+    pub fn as_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
 }
